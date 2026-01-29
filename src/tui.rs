@@ -417,28 +417,42 @@ impl Tui {
 
         match key.code {
             KeyCode::Char('q') => {
+                if !self.input.is_empty() {
+                    self.input.push('q');
+                    return false;
+                }
                 if self.is_active() {
                     return false;
                 }
                 return true;
             }
             KeyCode::Esc => {
-                self.set_view(View::Operational);
-                self.set_input_mode(InputMode::Command);
-                return false;
+                return true;
             }
             KeyCode::Char(':') => {
-                self.set_input_mode(InputMode::Command);
-                self.input.clear();
+                if self.input.is_empty() {
+                    self.set_input_mode(InputMode::Command);
+                    self.input.clear();
+                } else {
+                    self.input.push(':');
+                }
             }
             KeyCode::Char('/') => {
-                self.set_input_mode(InputMode::Search);
-                self.input.clear();
+                if self.input.is_empty() {
+                    self.set_input_mode(InputMode::Search);
+                    self.input.clear();
+                } else {
+                    self.input.push('/');
+                }
             }
             KeyCode::Char('?') => {
-                self.set_view(View::Help);
-                self.set_input_mode(InputMode::Help);
-                self.input.clear();
+                if self.input.is_empty() {
+                    self.set_view(View::Help);
+                    self.set_input_mode(InputMode::Help);
+                    self.input.clear();
+                } else {
+                    self.input.push('?');
+                }
             }
             KeyCode::Tab => {
                 let suggestion = self.autocomplete();

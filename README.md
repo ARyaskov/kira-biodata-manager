@@ -61,6 +61,7 @@ kira-bm
 
 In case you have no `kira-bm.json` file in project and run `kira-bm` -- you'll see an interactive terminal user interface.
 
+![Screenshot 1](docs/scr1.jpg)
 Fetch a specific dataset (add dataset to project's dataset directory):
 
 ```bash
@@ -71,6 +72,8 @@ kira-bm data fetch genome:GCF_000005845.2
 Routing:
 - Protein structures (`protein:<PDB_ID>`) are fetched from RCSB PDB.
 - Genomes are fetched from NCBI.
+
+![Screenshot 2](docs/scr2.jpg)
 
 List datasets (JSON in non-interactive mode):
 
