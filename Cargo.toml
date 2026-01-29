@@ -1,5 +1,6 @@
 ﻿[package]
 name = "kira-biodata-manager"
+description = "Reproducible bio-data manager with a project-local store and a shared global cache. kira-bm it's like npm/cargo/pip for bioinformatics."
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.91"
