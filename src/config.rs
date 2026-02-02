@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use crate::domain::{GenomeAccession, ProteinFormat, ProteinId};
+use crate::domain::{Doi, GenomeAccession, ProteinFormat, ProteinId, SrrFormat, SrrId, UniprotId};
 use crate::error::KiraError;
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -14,6 +14,12 @@ pub struct Config {
     pub proteins: Vec<ProteinEntry>,
     #[serde(default)]
     pub genomes: Vec<GenomeEntry>,
+    #[serde(default)]
+    pub srr: Vec<SrrEntry>,
+    #[serde(default)]
+    pub uniprot: Vec<UniprotEntry>,
+    #[serde(default)]
+    pub doi: Vec<DoiEntry>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -44,6 +50,45 @@ pub struct GenomeEntryObject {
     pub include: Option<Vec<String>>,
 }
 
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum UniprotEntry {
+    Shorthand(String),
+    Detailed(UniprotEntryObject),
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct UniprotEntryObject {
+    pub id: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum DoiEntry {
+    Shorthand(String),
+    Detailed(DoiEntryObject),
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct DoiEntryObject {
+    pub id: String,
+}
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum SrrEntry {
+    Shorthand(String),
+    Detailed(SrrEntryObject),
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct SrrEntryObject {
+    pub id: String,
+    #[serde(default)]
+    pub format: Option<SrrFormat>,
+    #[serde(default)]
+    pub paired: Option<bool>,
+}
+
 #[derive(Debug, Clone)]
 pub struct ProteinRequest {
     pub id: ProteinId,
@@ -61,6 +106,26 @@ pub struct ResolvedConfig {
     pub schema_version: u32,
     pub proteins: Vec<ProteinRequest>,
     pub genomes: Vec<GenomeRequest>,
+    pub srr: Vec<SrrRequest>,
+    pub uniprot: Vec<UniprotRequest>,
+    pub doi: Vec<DoiRequest>,
+}
+
+#[derive(Debug, Clone)]
+pub struct SrrRequest {
+    pub id: SrrId,
+    pub format: SrrFormat,
+    pub paired: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct UniprotRequest {
+    pub id: UniprotId,
+}
+
+#[derive(Debug, Clone)]
+pub struct DoiRequest {
+    pub id: Doi,
 }
 
 pub struct ConfigLoader;
@@ -117,10 +182,52 @@ impl ConfigLoader {
             })
             .collect::<Result<Vec<_>, KiraError>>()?;
 
+        let srr = config
+            .srr
+            .into_iter()
+            .map(|entry| match entry {
+                SrrEntry::Shorthand(value) => Ok(SrrRequest {
+                    id: value.parse()?,
+                    format: SrrFormat::Fastq,
+                    paired: false,
+                }),
+                SrrEntry::Detailed(obj) => Ok(SrrRequest {
+                    id: obj.id.parse()?,
+                    format: obj.format.unwrap_or(SrrFormat::Fastq),
+                    paired: obj.paired.unwrap_or(false),
+                }),
+            })
+            .collect::<Result<Vec<_>, KiraError>>()?;
+
+        let uniprot = config
+            .uniprot
+            .into_iter()
+            .map(|entry| match entry {
+                UniprotEntry::Shorthand(value) => Ok(UniprotRequest { id: value.parse()? }),
+                UniprotEntry::Detailed(obj) => Ok(UniprotRequest {
+                    id: obj.id.parse()?,
+                }),
+            })
+            .collect::<Result<Vec<_>, KiraError>>()?;
+
+        let doi = config
+            .doi
+            .into_iter()
+            .map(|entry| match entry {
+                DoiEntry::Shorthand(value) => Ok(DoiRequest { id: value.parse()? }),
+                DoiEntry::Detailed(obj) => Ok(DoiRequest {
+                    id: obj.id.parse()?,
+                }),
+            })
+            .collect::<Result<Vec<_>, KiraError>>()?;
+
         Ok(ResolvedConfig {
             schema_version,
             proteins,
             genomes,
+            srr,
+            uniprot,
+            doi,
         })
     }
 }
@@ -132,25 +239,4 @@ pub fn default_genome_include() -> Vec<String> {
         "protein".to_string(),
         "seq-report".to_string(),
     ]
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parse_config_shorthand() {
-        let config = Config {
-            schema_version: None,
-            proteins: vec![ProteinEntry::Shorthand("1LYZ".to_string())],
-            genomes: vec![GenomeEntry::Shorthand("GCF_000005845.2".to_string())],
-        };
-
-        let resolved = ConfigLoader::resolve_config(config).unwrap();
-        assert_eq!(resolved.schema_version, 1);
-        assert_eq!(resolved.proteins.len(), 1);
-        assert_eq!(resolved.genomes.len(), 1);
-        assert_eq!(resolved.proteins[0].format, ProteinFormat::Cif);
-        assert_eq!(resolved.genomes[0].include, default_genome_include());
-    }
 }

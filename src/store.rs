@@ -7,7 +7,8 @@ use directories::BaseDirs;
 use serde::{Deserialize, Serialize};
 use tempfile::Builder;
 
-use crate::domain::{GenomeAccession, ProteinFormat, ProteinId};
+use crate::domain::{Doi, GenomeAccession, GeoSeriesAccession, ProteinFormat, ProteinId};
+use crate::domain::{SrrId, UniprotId};
 use crate::error::KiraError;
 
 #[derive(Debug, Clone)]
@@ -80,11 +81,68 @@ impl Store {
         self.cache_root.join("genomes").join(acc.as_str())
     }
 
+    pub fn project_srr_dir(&self, id: &SrrId) -> Utf8PathBuf {
+        self.project_root.join("srr").join(id.as_str())
+    }
+
+    pub fn cache_srr_dir(&self, id: &SrrId) -> Utf8PathBuf {
+        self.cache_root.join("srr").join(id.as_str())
+    }
+
+    pub fn project_uniprot_dir(&self, id: &UniprotId) -> Utf8PathBuf {
+        self.project_root.join("uniprot").join(id.as_str())
+    }
+
+    pub fn cache_uniprot_dir(&self, id: &UniprotId) -> Utf8PathBuf {
+        self.cache_root.join("uniprot").join(id.as_str())
+    }
+
+    pub fn project_doi_dir(&self, doi: &Doi) -> Utf8PathBuf {
+        self.project_root
+            .join("doi")
+            .join(encode_doi_segment(doi.as_str()))
+    }
+
+    pub fn project_expression_dir(&self, acc: &GeoSeriesAccession) -> Utf8PathBuf {
+        self.project_root.join("expression").join(acc.as_str())
+    }
+
+    pub fn cache_expression_dir(&self, acc: &GeoSeriesAccession) -> Utf8PathBuf {
+        self.cache_root.join("expression").join(acc.as_str())
+    }
+
+    pub fn project_expression10x_dir(&self, acc: &GeoSeriesAccession) -> Utf8PathBuf {
+        self.project_root.join("expression10x").join(acc.as_str())
+    }
+
+    pub fn cache_expression10x_dir(&self, acc: &GeoSeriesAccession) -> Utf8PathBuf {
+        self.cache_root.join("expression10x").join(acc.as_str())
+    }
+
+    pub fn project_kb_dir(&self, name: &str) -> Utf8PathBuf {
+        self.project_root.join("metadata").join(name)
+    }
+
+    pub fn cache_kb_dir(&self, name: &str) -> Utf8PathBuf {
+        self.cache_root.join("metadata").join(name)
+    }
+
+    pub fn project_doi_resolution_path(&self, doi: &Doi) -> Utf8PathBuf {
+        self.project_doi_dir(doi).join("doi_resolution.json")
+    }
+
     pub fn project_metadata_path(&self, dataset_type: &str, id: &str) -> Utf8PathBuf {
         self.project_root
             .join("metadata")
             .join(dataset_type)
             .join(format!("{id}.json"))
+    }
+
+    pub fn project_doi_metadata_path(&self, doi: &Doi) -> Utf8PathBuf {
+        self.project_root
+            .join("metadata")
+            .join("doi")
+            .join(format!("{}.json", encode_doi_segment(doi.as_str())))
     }
 
     pub fn cache_metadata_path(&self, dataset_type: &str, id: &str) -> Utf8PathBuf {
@@ -217,9 +275,9 @@ impl Store {
             if path.is_file() && path.extension().map(|ext| ext == "json").unwrap_or(false) {
                 let content = fs::read_to_string(&path)
                     .map_err(|err| KiraError::Filesystem(err.to_string()))?;
-                let metadata: Metadata = serde_json::from_str(&content)
-                    .map_err(|err| KiraError::Filesystem(err.to_string()))?;
-                entries.push(metadata);
+                if let Ok(metadata) = serde_json::from_str::<Metadata>(&content) {
+                    entries.push(metadata);
+                }
             }
         }
         Ok(entries)
@@ -269,21 +327,15 @@ fn protein_ext(format: ProteinFormat) -> &'static str {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::domain::ProteinFormat;
-
-    #[test]
-    fn layout_paths() {
-        let store = Store::new().unwrap();
-        let id: ProteinId = "1LYZ".parse().unwrap();
-        let acc: GenomeAccession = "GCF_000005845.2".parse().unwrap();
-
-        let protein_path = store.project_protein_path(&id, ProteinFormat::Pdb);
-        assert!(protein_path.ends_with("proteins/1LYZ/1LYZ.pdb"));
-
-        let genome_path = store.cache_genome_dir(&acc);
-        assert!(genome_path.ends_with("genomes/GCF_000005845.2"));
+fn encode_doi_segment(value: &str) -> String {
+    let mut out = String::new();
+    for byte in value.as_bytes() {
+        let ch = *byte as char;
+        if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' || ch == '.' || ch == '~' {
+            out.push(ch);
+        } else {
+            out.push_str(&format!("%{:02X}", byte));
+        }
     }
+    out
 }

@@ -1,5 +1,5 @@
 use std::collections::VecDeque;
-use std::io;
+use std::io::{self, Write};
 use std::time::{Duration, Instant, SystemTime};
 use std::{
     fmt,
@@ -19,6 +19,7 @@ use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
+use serde_json::Value;
 
 use crate::app::{ProgressEvent, ProgressSink, ProgressSinkKind};
 use crate::error::KiraError;
@@ -87,6 +88,8 @@ struct DatasetInfo {
     id: String,
     format: Option<String>,
     source: Option<String>,
+    name: Option<String>,
+    organism: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -124,6 +127,7 @@ pub struct Tui {
     kind: ProgressSinkKind,
     state: Arc<Mutex<AppState>>,
     input: String,
+    cursor: usize,
     history: Vec<String>,
     history_index: Option<usize>,
     log_scroll: u16,
@@ -137,6 +141,7 @@ impl ProgressSink for TuiProgress {
     fn event(&self, event: ProgressEvent) {
         if let Ok(mut state) = self.state.lock() {
             let message = event.message.trim().to_string();
+            let display = humanize_event(&message);
             if let Some((phase, payload)) = parse_phase(&message) {
                 state.phase = phase;
                 state.status = payload.to_string();
@@ -146,15 +151,21 @@ impl ProgressSink for TuiProgress {
             } else if message.contains("retry") {
                 state.retries = state.retries.saturating_add(1);
             } else {
-                state.status = message.clone();
+                state.status = display.clone();
             }
 
-            if message.contains("ncbi.request") || message.contains("rcsb.request") {
+            if message.contains("ncbi.request")
+                || message.contains("rcsb.request")
+                || message.contains("uniprot.request")
+                || message.contains("crossref.request")
+            {
                 state.request_count = state.request_count.saturating_add(1);
             }
 
-            push_event(&mut state.events, message.clone());
-            push_log(&mut state.logs, format!("[{}] {message}", timestamp()));
+            push_event(&mut state.events, display.clone());
+            let line = format!("[{}] {display}", timestamp());
+            push_log(&mut state.logs, line.clone());
+            append_log_line(&line);
         }
     }
 }
@@ -168,6 +179,7 @@ impl Tui {
             cache_bytes: 0,
             cache_ok: false,
         });
+        let logs = load_log_history();
         Self {
             kind,
             state: Arc::new(Mutex::new(AppState {
@@ -178,7 +190,7 @@ impl Tui {
                 latency_ms: None,
                 retries: 0,
                 events: VecDeque::new(),
-                logs: VecDeque::new(),
+                logs,
                 view: View::Operational,
                 input_mode: InputMode::Command,
                 dataset: None,
@@ -191,6 +203,7 @@ impl Tui {
                 last_hint_update: Instant::now(),
             })),
             input: String::new(),
+            cursor: 0,
             history: Vec::new(),
             history_index: None,
             log_scroll: 0,
@@ -309,11 +322,18 @@ impl Tui {
     pub fn finish_fetch(&mut self, result: &crate::app::FetchResult) -> miette::Result<()> {
         if let Some(item) = result.items.first() {
             if let Ok(mut state) = self.state.lock() {
+                let (name, organism) = load_uniprot_details(
+                    item.dataset_type.as_str(),
+                    item.project_path.as_deref(),
+                    item.cache_path.as_deref(),
+                );
                 state.dataset = Some(DatasetInfo {
                     dataset_type: item.dataset_type.clone(),
                     id: item.id.clone(),
                     format: item.format.clone(),
                     source: Some(item.source.clone()),
+                    name,
+                    organism,
                 });
                 state.view = View::DataFocus;
                 state.input_mode = InputMode::Command;
@@ -331,11 +351,18 @@ impl Tui {
 
     pub fn finish_info(&mut self, result: &crate::app::InfoResult) -> miette::Result<()> {
         if let Ok(mut state) = self.state.lock() {
+            let (name, organism) = load_uniprot_details(
+                result.dataset_type.as_str(),
+                result.project_path.as_deref(),
+                result.cache_path.as_deref(),
+            );
             state.dataset = Some(DatasetInfo {
                 dataset_type: result.dataset_type.clone(),
                 id: result.id.clone(),
                 format: result.format.clone(),
                 source: result.source.clone(),
+                name,
+                organism,
             });
             state.view = View::DataFocus;
             state.input_mode = InputMode::Command;
@@ -418,7 +445,7 @@ impl Tui {
         match key.code {
             KeyCode::Char('q') => {
                 if !self.input.is_empty() {
-                    self.input.push('q');
+                    self.insert_char('q');
                     return false;
                 }
                 if self.is_active() {
@@ -433,16 +460,18 @@ impl Tui {
                 if self.input.is_empty() {
                     self.set_input_mode(InputMode::Command);
                     self.input.clear();
+                    self.cursor = 0;
                 } else {
-                    self.input.push(':');
+                    self.insert_char(':');
                 }
             }
             KeyCode::Char('/') => {
                 if self.input.is_empty() {
                     self.set_input_mode(InputMode::Search);
                     self.input.clear();
+                    self.cursor = 0;
                 } else {
-                    self.input.push('/');
+                    self.insert_char('/');
                 }
             }
             KeyCode::Char('?') => {
@@ -450,8 +479,9 @@ impl Tui {
                     self.set_view(View::Help);
                     self.set_input_mode(InputMode::Help);
                     self.input.clear();
+                    self.cursor = 0;
                 } else {
-                    self.input.push('?');
+                    self.insert_char('?');
                 }
             }
             KeyCode::Tab => {
@@ -462,6 +492,10 @@ impl Tui {
             KeyCode::Down => self.history_down(),
             KeyCode::PageUp => self.scroll_logs(-5),
             KeyCode::PageDown => self.scroll_logs(5),
+            KeyCode::Left => self.move_cursor_left(),
+            KeyCode::Right => self.move_cursor_right(),
+            KeyCode::Home => self.cursor = 0,
+            KeyCode::End => self.cursor = self.input.len(),
             KeyCode::Enter => {
                 if self.input_mode() == InputMode::Search {
                     if let Some(best) = self.best_history_match() {
@@ -471,11 +505,11 @@ impl Tui {
                 }
             }
             KeyCode::Backspace => {
-                self.input.pop();
+                self.backspace();
             }
             _ => {
                 if let KeyCode::Char(ch) = key.code {
-                    self.input.push(ch);
+                    self.insert_char(ch);
                 }
             }
         }
@@ -490,6 +524,7 @@ impl Tui {
         self.history.push(current.clone());
         self.history_index = None;
         self.input.clear();
+        self.cursor = 0;
         Some(current)
     }
 
@@ -582,6 +617,37 @@ impl Tui {
 
     fn set_input_text(&mut self, value: &str) {
         self.input = value.to_string();
+        self.cursor = self.input.len();
+    }
+
+    fn insert_char(&mut self, ch: char) {
+        if self.cursor >= self.input.len() {
+            self.input.push(ch);
+        } else {
+            self.input.insert(self.cursor, ch);
+        }
+        self.cursor = self.cursor.saturating_add(1);
+    }
+
+    fn backspace(&mut self) {
+        if self.cursor == 0 || self.input.is_empty() {
+            return;
+        }
+        let idx = self.cursor.saturating_sub(1);
+        self.input.remove(idx);
+        self.cursor = idx;
+    }
+
+    fn move_cursor_left(&mut self) {
+        if self.cursor > 0 {
+            self.cursor -= 1;
+        }
+    }
+
+    fn move_cursor_right(&mut self) {
+        if self.cursor < self.input.len() {
+            self.cursor += 1;
+        }
     }
 
     fn autocomplete(&mut self) -> String {
@@ -591,6 +657,33 @@ impl Tui {
         }
         if current.starts_with("gen") && !current.contains(':') {
             return "genome:".to_string();
+        }
+        if current.starts_with("srr") && !current.contains(':') {
+            return "srr:".to_string();
+        }
+        if current.starts_with("uni") && !current.contains(':') {
+            return "uniprot:".to_string();
+        }
+        if current.starts_with("expr10") && !current.contains(':') {
+            return "expression10x:".to_string();
+        }
+        if current.starts_with("expr") && !current.contains(':') {
+            return "expression:".to_string();
+        }
+        if current.starts_with("doi") && !current.contains(':') {
+            return "doi:".to_string();
+        }
+        if current.starts_with("go") && !current.contains(':') {
+            return "go".to_string();
+        }
+        if current.starts_with("kegg") && !current.contains(':') {
+            return "kegg".to_string();
+        }
+        if current.starts_with("react") && !current.contains(':') {
+            return "reactome".to_string();
+        }
+        if current.starts_with("init") {
+            return "init".to_string();
         }
         if current.starts_with("data f") {
             return "data fetch ".to_string();
@@ -604,11 +697,38 @@ impl Tui {
         if current.starts_with("data c") {
             return "data clear".to_string();
         }
+        if current.starts_with("data init") {
+            return "data init".to_string();
+        }
         if current.starts_with("data fetch pro") {
             return "data fetch protein:".to_string();
         }
         if current.starts_with("data fetch gen") {
             return "data fetch genome:".to_string();
+        }
+        if current.starts_with("data fetch srr") {
+            return "data fetch srr:".to_string();
+        }
+        if current.starts_with("data fetch uni") {
+            return "data fetch uniprot:".to_string();
+        }
+        if current.starts_with("data fetch expr10") {
+            return "data fetch expression10x:".to_string();
+        }
+        if current.starts_with("data fetch expr") {
+            return "data fetch expression:".to_string();
+        }
+        if current.starts_with("data fetch doi") {
+            return "data fetch doi:".to_string();
+        }
+        if current.starts_with("data fetch go") {
+            return "data fetch go".to_string();
+        }
+        if current.starts_with("data fetch kegg") {
+            return "data fetch kegg".to_string();
+        }
+        if current.starts_with("data fetch react") {
+            return "data fetch reactome".to_string();
         }
         self.best_history_match()
             .unwrap_or_else(|| current.to_string())
@@ -826,7 +946,10 @@ fn draw_help(frame: &mut ratatui::Frame) {
     let lines = vec![
         Line::from("F1 Help  F2 Browser  F3 Search  F4 Logs  F5 Config"),
         Line::from(": command mode   / search mode   ? help mode"),
-        Line::from("Commands: data fetch|list|info|clear"),
+        Line::from("Commands: data fetch|list|info|clear|init"),
+        Line::from(
+            "Specifiers: protein|genome|srr|uniprot|doi|expression|expression10x|go|kegg|reactome",
+        ),
         Line::from("Examples: protein:1LYZ  genome:GCF_000005845.2"),
     ];
     let view = Paragraph::new(lines).block(block).wrap(Wrap { trim: true });
@@ -982,6 +1105,20 @@ fn draw_details_panel(state: &AppState) -> Paragraph<'static> {
             Span::styled("Accession: ", Style::default().fg(Color::Gray)),
             Span::raw(info.id),
         ]));
+        if info.dataset_type == "uniprot" {
+            if let Some(name) = info.name {
+                lines.push(Line::from(vec![
+                    Span::styled("Protein: ", Style::default().fg(Color::Gray)),
+                    Span::raw(name),
+                ]));
+            }
+            if let Some(org) = info.organism {
+                lines.push(Line::from(vec![
+                    Span::styled("Organism: ", Style::default().fg(Color::Gray)),
+                    Span::raw(org),
+                ]));
+            }
+        }
         lines.push(Line::from(vec![
             Span::styled("Integrity: ", Style::default().fg(Color::Gray)),
             Span::styled("pending", Style::default().fg(Color::Yellow)),
@@ -1012,7 +1149,7 @@ fn draw_command_line(
     frame: &mut ratatui::Frame,
     tui: &Tui,
     state: &AppState,
-    tick: usize,
+    _tick: usize,
     area: Rect,
 ) {
     let prefix = match state.input_mode {
@@ -1061,7 +1198,7 @@ fn draw_command_line(
     if blink_on {
         let mut cursor_x = area
             .x
-            .saturating_add(frame_cursor_x(prefix, &tui.input, state, tick));
+            .saturating_add((prefix.len() + tui.cursor.min(tui.input.len())) as u16);
         let cursor_y = area.y.saturating_add(1);
         if cursor_x >= area.x.saturating_add(area.width) {
             cursor_x = area.x.saturating_add(area.width.saturating_sub(1));
@@ -1104,6 +1241,15 @@ fn command_preview(tui: &Tui, state: &AppState) -> String {
         return format!("fetch {}", raw);
     }
     if raw.starts_with("genome:") {
+        return format!("fetch {}", raw);
+    }
+    if raw.starts_with("doi:") {
+        return format!("fetch {}", raw);
+    }
+    if raw.starts_with("expression:") || raw.starts_with("expression10x:") {
+        return format!("fetch {}", raw);
+    }
+    if matches!(raw, "go" | "kegg" | "reactome") {
         return format!("fetch {}", raw);
     }
     if raw.starts_with("data ") || raw.starts_with("fetch") || raw.starts_with("list") {
@@ -1164,6 +1310,27 @@ fn parse_latency(message: &str) -> Option<u128> {
         .nth(1)
         .and_then(|rest| rest.split_whitespace().next())
         .and_then(|value| value.parse::<u128>().ok())
+}
+
+fn humanize_event(message: &str) -> String {
+    if let Some(rest) = message.strip_prefix("doi.extract ") {
+        return format!("DOI: extracted identifiers ({rest})");
+    }
+    match message {
+        "doi.crossref.start" => "DOI: resolving Crossref metadata".to_string(),
+        "doi.crossref.done" => "DOI: Crossref metadata resolved".to_string(),
+        "doi.validate.pdb" => "DOI: validating PDB accessions".to_string(),
+        "doi.validate.uniprot" => "DOI: validating UniProt accessions".to_string(),
+        "doi.validate.assembly" => "DOI: validating assembly accessions".to_string(),
+        "doi.validate.srr" => "DOI: validating SRA runs (SRR)".to_string(),
+        "doi.validate.err" => "DOI: validating ENA runs (ERR)".to_string(),
+        "doi.hydrate.geo_series" => "DOI: expanding GEO series (GSE)".to_string(),
+        "doi.hydrate.geo_samples" => "DOI: expanding GEO samples (GSM)".to_string(),
+        "doi.hydrate.bioproject" => "DOI: expanding BioProject".to_string(),
+        "doi.hydrate.ena_project" => "DOI: expanding ENA project".to_string(),
+        "doi.done" => "DOI: resolution completed".to_string(),
+        _ => message.to_string(),
+    }
 }
 
 fn push_event(buffer: &mut VecDeque<String>, item: String) {
@@ -1259,8 +1426,79 @@ fn bytes_to_human(bytes: u64) -> String {
     }
 }
 
-fn frame_cursor_x(prefix: &str, input: &str, _state: &AppState, _tick: usize) -> u16 {
-    (prefix.len() + input.len()) as u16
+fn load_log_history() -> VecDeque<String> {
+    let Some(path) = log_file_path() else {
+        return VecDeque::new();
+    };
+    let content = std::fs::read_to_string(&path).unwrap_or_default();
+    let mut buffer = VecDeque::new();
+    let mut tail: Vec<&str> = content.lines().rev().take(LOGS_MAX).collect();
+    tail.reverse();
+    for line in tail {
+        buffer.push_back(line.to_string());
+    }
+    buffer
+}
+
+fn append_log_line(line: &str) {
+    let Some(path) = log_file_path() else {
+        return;
+    };
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    if let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+    {
+        let _ = writeln!(file, "{line}");
+    }
+}
+
+fn log_file_path() -> Option<std::path::PathBuf> {
+    let store = Store::new().ok()?;
+    Some(
+        store
+            .project_root()
+            .as_std_path()
+            .join("logs")
+            .join("kira-bm.log"),
+    )
+}
+
+fn load_uniprot_details(
+    dataset_type: &str,
+    project_path: Option<&str>,
+    cache_path: Option<&str>,
+) -> (Option<String>, Option<String>) {
+    if dataset_type != "uniprot" {
+        return (None, None);
+    }
+    let mut paths = Vec::new();
+    if let Some(path) = project_path {
+        paths.push(path.to_string());
+    }
+    if let Some(path) = cache_path {
+        paths.push(path.to_string());
+    }
+    for base in paths {
+        let meta_path = std::path::Path::new(&base).join("metadata.json");
+        if let Ok(content) = std::fs::read_to_string(&meta_path) {
+            if let Ok(value) = serde_json::from_str::<Value>(&content) {
+                let name = value
+                    .get("protein_name")
+                    .and_then(|v| v.as_str())
+                    .map(|v| v.to_string());
+                let organism = value
+                    .get("organism")
+                    .and_then(|v| v.as_str())
+                    .map(|v| v.to_string());
+                return (name, organism);
+            }
+        }
+    }
+    (None, None)
 }
 
 impl fmt::Display for Phase {

@@ -1,0 +1,195 @@
+{
+  "primaryAccession": "P69905",
+  "proteinDescription": {
+    "recommendedName": {
+      "fullName": {
+        "value": "Hemoglobin subunit alpha"
+      }
+    }
+  },
+  "genes": [
+    {
+      "geneName": { "value": "HBA1" },
+      "synonyms": [{ "value": "HBA2" }]
+    }
+  ],
+  "organism": {
+    "scientificName": "Homo sapiens"
+  },
+  "sequence": {
+    "length": 141
+  },
+  "comments": [
+    {
+      "commentType": "FUNCTION",
+      "texts": [
+        { "value": "Oxygen transport from the lung to the various peripheral tissues." }
+      ]
+    },
+    {
+      "commentType": "DISEASE",
+      "disease": {
+        "diseaseId": "DI-00001",
+        "description": "Example disease description."
+      }
+    },
+    {
+      "commentType": "ALTERNATIVE_PRODUCTS",
+      "isoforms": [
+        { "isoformIds": ["P69905-1", "P69905-2"] }
+      ]
+    }
+  ],
+  "features": [
+    {
+      "type": "Domain",
+      "description": "Globin domain",
+      "location": {
+        "start": { "value": 1 },
+        "end": { "value": 141 }
+      }
+    },
+    {
+      "type": "Active site",
+      "description": "Proton donor",
+      "location": { "start": { "value": 58 }, "end": { "value": 58 } }
+    },
+    {
+      "type": "Binding site",
+      "description": "Heme binding",
+      "location": { "start": { "value": 88 }, "end": { "value": 88 } }
+    },
+    {
+      "type": "Modified residue",
+      "description": "Phosphoserine",
+      "location": { "start": { "value": 2 }, "end": { "value": 2 } }
+    },
+    {
+      "type": "Region",
+      "description": "Flexible region",
+      "location": { "start": { "value": 10 }, "end": { "value": 20 } }
+    },
+    {
+      "type": "Repeat",
+      "description": "Repeat 1",
+      "location": { "start": { "value": 30 }, "end": { "value": 40 } }
+    },
+    {
+      "type": "Motif",
+      "description": "Motif A",
+      "location": { "start": { "value": 50 }, "end": { "value": 55 } }
+    },
+    {
+      "type": "Signal peptide",
+      "description": "Signal peptide",
+      "location": { "start": { "value": 1 }, "end": { "value": 15 } }
+    },
+    {
+      "type": "Transmembrane",
+      "description": "Helical",
+      "location": { "start": { "value": 60 }, "end": { "value": 80 } }
+    },
+    {
+      "type": "Topological domain",
+      "description": "Cytoplasmic",
+      "location": { "start": { "value": 81 }, "end": { "value": 100 } }
+    },
+    {
+      "type": "Helix",
+      "description": "Alpha helix",
+      "location": { "start": { "value": 20 }, "end": { "value": 30 } }
+    },
+    {
+      "type": "Coiled coil",
+      "description": "Coiled-coil region",
+      "location": { "start": { "value": 31 }, "end": { "value": 45 } }
+    },
+    {
+      "type": "Zinc finger",
+      "description": "C2H2-type",
+      "location": { "start": { "value": 46 }, "end": { "value": 55 } }
+    },
+    {
+      "type": "Turn",
+      "description": "Turn",
+      "location": { "start": { "value": 56 }, "end": { "value": 57 } }
+    },
+    {
+      "type": "Strand",
+      "description": "Strand",
+      "location": { "start": { "value": 58 }, "end": { "value": 59 } }
+    },
+    {
+      "type": "Beta strand",
+      "description": "Beta strand",
+      "location": { "start": { "value": 60 }, "end": { "value": 61 } }
+    },
+    {
+      "type": "Intrinsically disordered region",
+      "description": "Disordered",
+      "location": { "start": { "value": 62 }, "end": { "value": 70 } }
+    },
+    {
+      "type": "Low complexity",
+      "description": "Low complexity region",
+      "location": { "start": { "value": 71 }, "end": { "value": 75 } }
+    },
+    {
+      "type": "Signal anchor",
+      "description": "Signal anchor",
+      "location": { "start": { "value": 76 }, "end": { "value": 85 } }
+    },
+    {
+      "type": "Transit peptide",
+      "description": "Transit peptide",
+      "location": { "start": { "value": 86 }, "end": { "value": 95 } }
+    },
+    {
+      "type": "Beta helix",
+      "description": "Beta helix",
+      "location": { "start": { "value": 96 }, "end": { "value": 100 } }
+    },
+    {
+      "type": "Propeptide",
+      "description": "Propeptide",
+      "location": { "start": { "value": 101 }, "end": { "value": 105 } }
+    },
+    {
+      "type": "Initiator methionine",
+      "description": "Initiator methionine",
+      "location": { "start": { "value": 1 }, "end": { "value": 1 } }
+    },
+    {
+      "type": "Chain",
+      "description": "Mature chain",
+      "location": { "start": { "value": 106 }, "end": { "value": 130 } }
+    },
+    {
+      "type": "Peptide",
+      "description": "Mature peptide",
+      "note": {
+        "texts": [{ "value": "Mature product" }]
+      },
+      "location": { "start": { "value": 131 }, "end": { "value": 141 } }
+    },
+    {
+      "type": "Peptide",
+      "description": "Propeptide fragment",
+      "note": {
+        "value": "Propeptide region"
+      },
+      "location": { "start": { "value": 120 }, "end": { "value": 125 } }
+    },
+    {
+      "type": "Natural variant",
+      "description": "A->V",
+      "location": { "start": { "value": 16 }, "end": { "value": 16 } },
+      "featureCrossReferences": [{ "id": "VAR_0001" }]
+    }
+  ],
+  "uniProtKBCrossReferences": [
+    { "database": "PDB", "id": "1A3N" },
+    { "database": "RefSeq", "id": "NP_000549.1" },
+    { "database": "GeneID", "id": "3043" }
+  ]
+}

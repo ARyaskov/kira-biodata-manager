@@ -2,7 +2,7 @@ use std::io::{self, Write};
 
 use serde::Serialize;
 
-use crate::app::{ClearResult, FetchResult, InfoResult, ListResult};
+use crate::app::{ClearResult, FetchResult, InfoResult, InitResult, ListResult};
 
 #[derive(Debug, Clone, Copy)]
 pub enum OutputMode {
@@ -26,6 +26,10 @@ impl JsonOutput {
     }
 
     pub fn print_clear(result: &ClearResult) -> io::Result<()> {
+        Self::print_json(result)
+    }
+
+    pub fn print_init(result: &InitResult) -> io::Result<()> {
         Self::print_json(result)
     }
 

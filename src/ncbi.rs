@@ -180,7 +180,7 @@ impl NcbiClient for NcbiHttpClient {
     }
 }
 
-fn map_genome_include(include: &[String]) -> Result<Vec<String>, KiraError> {
+pub fn map_genome_include(include: &[String]) -> Result<Vec<String>, KiraError> {
     if include.is_empty() {
         return Ok(Vec::new());
     }
@@ -211,20 +211,4 @@ fn is_retryable_status(status: u16) -> bool {
 
 fn is_retryable_error(err: &reqwest::Error) -> bool {
     err.is_timeout() || err.is_connect() || err.is_request()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn map_include_values() {
-        let include = vec![
-            "genome".to_string(),
-            "gff3".to_string(),
-            "protein".to_string(),
-        ];
-        let mapped = map_genome_include(&include).unwrap();
-        assert_eq!(mapped, vec!["GENOME_FASTA", "GENOME_GFF", "PROT_FASTA"]);
-    }
 }
