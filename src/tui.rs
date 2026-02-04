@@ -60,6 +60,13 @@ enum Phase {
     Store,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StatusLevel {
+    Info,
+    Warning,
+    Error,
+}
+
 impl Phase {
     fn label(self) -> &'static str {
         match self {
@@ -104,6 +111,11 @@ struct StoreSummary {
 #[derive(Debug)]
 struct AppState {
     status: String,
+    status_level: StatusLevel,
+    last_warning: Option<Instant>,
+    last_error: Option<Instant>,
+    warning_count: u32,
+    error_count: u32,
     phase: Phase,
     confidence: &'static str,
     req_rate: f64,
@@ -146,12 +158,14 @@ impl ProgressSink for TuiProgress {
                 state.phase = phase;
                 state.status = payload.to_string();
                 state.confidence = confidence_for(phase);
+                state.status_level = StatusLevel::Info;
             } else if let Some(latency) = parse_latency(&message) {
                 state.latency_ms = Some(latency);
             } else if message.contains("retry") {
                 state.retries = state.retries.saturating_add(1);
             } else {
                 state.status = display.clone();
+                state.status_level = StatusLevel::Info;
             }
 
             if message.contains("ncbi.request")
@@ -184,6 +198,11 @@ impl Tui {
             kind,
             state: Arc::new(Mutex::new(AppState {
                 status: "ready".to_string(),
+                status_level: StatusLevel::Info,
+                last_warning: None,
+                last_error: None,
+                warning_count: 0,
+                error_count: 0,
                 phase: Phase::Resolve,
                 confidence: "Low",
                 req_rate: 0.0,
@@ -267,6 +286,46 @@ impl Tui {
         let mut stdout = io::stdout();
         stdout.execute(LeaveAlternateScreen).into_diagnostic()?;
         Err(miette::Report::msg("aborted"))
+    }
+
+    pub fn note(&self, message: &str) {
+        if let Ok(mut state) = self.state.lock() {
+            let display = message.trim().to_string();
+            state.status = display.clone();
+            state.status_level = StatusLevel::Info;
+            push_event(&mut state.events, display.clone());
+            let line = format!("[{}] {}", timestamp(), display);
+            push_log(&mut state.logs, line.clone());
+            append_log_line(&line);
+        }
+    }
+
+    pub fn note_warning(&self, message: &str) {
+        if let Ok(mut state) = self.state.lock() {
+            let display = message.trim().to_string();
+            state.status = display.clone();
+            state.status_level = StatusLevel::Warning;
+            state.last_warning = Some(Instant::now());
+            state.warning_count = state.warning_count.saturating_add(1);
+            push_event(&mut state.events, display.clone());
+            let line = format!("[{}] {}", timestamp(), display);
+            push_log(&mut state.logs, line.clone());
+            append_log_line(&line);
+        }
+    }
+
+    pub fn note_error(&self, message: &str) {
+        if let Ok(mut state) = self.state.lock() {
+            let display = message.trim().to_string();
+            state.status = display.clone();
+            state.status_level = StatusLevel::Error;
+            state.last_error = Some(Instant::now());
+            state.error_count = state.error_count.saturating_add(1);
+            push_event(&mut state.events, display.clone());
+            let line = format!("[{}] {}", timestamp(), display);
+            push_log(&mut state.logs, line.clone());
+            append_log_line(&line);
+        }
     }
 
     pub fn idle_command(&mut self) -> miette::Result<Option<String>> {
@@ -685,50 +744,56 @@ impl Tui {
         if current.starts_with("init") {
             return "init".to_string();
         }
-        if current.starts_with("data f") {
-            return "data fetch ".to_string();
+        if current.starts_with("f") {
+            return "fetch ".to_string();
         }
-        if current.starts_with("data i") {
-            return "data info ".to_string();
+        if current.starts_with("i") {
+            return "info ".to_string();
         }
-        if current.starts_with("data l") {
-            return "data list".to_string();
+        if current.starts_with("l") {
+            return "list".to_string();
         }
-        if current.starts_with("data c") {
-            return "data clear".to_string();
+        if current.starts_with("c") {
+            return "clear".to_string();
         }
-        if current.starts_with("data init") {
-            return "data init".to_string();
+        if current.starts_with("tools i") {
+            return "tools install-sra".to_string();
         }
-        if current.starts_with("data fetch pro") {
-            return "data fetch protein:".to_string();
+        if current.starts_with("init") {
+            return "init".to_string();
         }
-        if current.starts_with("data fetch gen") {
-            return "data fetch genome:".to_string();
+        if current.starts_with("fetch pro") {
+            return "fetch protein:".to_string();
         }
-        if current.starts_with("data fetch srr") {
-            return "data fetch srr:".to_string();
+        if current.starts_with("fetch gen") {
+            return "fetch genome:".to_string();
         }
-        if current.starts_with("data fetch uni") {
-            return "data fetch uniprot:".to_string();
+        if current.starts_with("fetch srr") {
+            return "fetch srr:".to_string();
         }
-        if current.starts_with("data fetch expr10") {
-            return "data fetch expression10x:".to_string();
+        if current.starts_with("fetch uni") {
+            return "fetch uniprot:".to_string();
         }
-        if current.starts_with("data fetch expr") {
-            return "data fetch expression:".to_string();
+        if current.starts_with("fetch expr10") {
+            return "fetch expression10x:".to_string();
         }
-        if current.starts_with("data fetch doi") {
-            return "data fetch doi:".to_string();
+        if current.starts_with("fetch expr") {
+            return "fetch expression:".to_string();
         }
-        if current.starts_with("data fetch go") {
-            return "data fetch go".to_string();
+        if current.starts_with("fetch doi") {
+            return "fetch doi:".to_string();
         }
-        if current.starts_with("data fetch kegg") {
-            return "data fetch kegg".to_string();
+        if current.starts_with("fetch go") {
+            return "fetch go".to_string();
         }
-        if current.starts_with("data fetch react") {
-            return "data fetch reactome".to_string();
+        if current.starts_with("fetch kegg") {
+            return "fetch kegg".to_string();
+        }
+        if current.starts_with("fetch react") {
+            return "fetch reactome".to_string();
+        }
+        if current.starts_with("tools install") {
+            return "tools install-sra".to_string();
         }
         self.best_history_match()
             .unwrap_or_else(|| current.to_string())
@@ -946,7 +1011,7 @@ fn draw_help(frame: &mut ratatui::Frame) {
     let lines = vec![
         Line::from("F1 Help  F2 Browser  F3 Search  F4 Logs  F5 Config"),
         Line::from(": command mode   / search mode   ? help mode"),
-        Line::from("Commands: data fetch|list|info|clear|init"),
+        Line::from("Commands: fetch|add|list|info|clear|init; tools install-sra"),
         Line::from(
             "Specifiers: protein|genome|srr|uniprot|doi|expression|expression10x|go|kegg|reactome",
         ),
@@ -1022,6 +1087,7 @@ fn draw_status_panel(state: &AppState, elapsed: Duration) -> Paragraph<'static> 
     } else {
         Color::Yellow
     };
+    let status_level = derive_status_level(state);
     let req_rate = if state.req_rate > 0.0 {
         format!("{:.1}", state.req_rate)
     } else {
@@ -1031,6 +1097,17 @@ fn draw_status_panel(state: &AppState, elapsed: Duration) -> Paragraph<'static> 
         .latency_ms
         .map(|v| format!("{v} ms"))
         .unwrap_or_else(|| "--".to_string());
+    let (status_icon, status_color) = match status_level {
+        StatusLevel::Info => ("•", Color::Cyan),
+        StatusLevel::Warning => ("!", Color::Yellow),
+        StatusLevel::Error => ("x", Color::Red),
+    };
+    let status_suffix = status_suffix(state, status_level);
+    let status_text = if status_suffix.is_empty() {
+        state.status.clone()
+    } else {
+        format!("{} {}", state.status, status_suffix)
+    };
     let mut lines = vec![
         Line::from(Span::styled(
             "STATUS / PROGRESS",
@@ -1038,6 +1115,12 @@ fn draw_status_panel(state: &AppState, elapsed: Duration) -> Paragraph<'static> 
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),
         )),
+        Line::from(vec![
+            Span::styled("Status: ", Style::default().fg(Color::Gray)),
+            Span::styled(status_icon, Style::default().fg(status_color)),
+            Span::raw(" "),
+            Span::styled(status_text, Style::default().fg(status_color)),
+        ]),
         Line::from(vec![
             Span::styled("Phase: ", Style::default().fg(Color::Gray)),
             Span::styled(
@@ -1252,7 +1335,7 @@ fn command_preview(tui: &Tui, state: &AppState) -> String {
     if matches!(raw, "go" | "kegg" | "reactome") {
         return format!("fetch {}", raw);
     }
-    if raw.starts_with("data ") || raw.starts_with("fetch") || raw.starts_with("list") {
+    if raw.starts_with("fetch") || raw.starts_with("list") {
         return raw.to_string();
     }
     raw.to_string()
@@ -1273,6 +1356,53 @@ fn progress_bar(percent: u8) -> String {
     }
     out.push(']');
     out
+}
+
+fn derive_status_level(state: &AppState) -> StatusLevel {
+    let now = Instant::now();
+    if state
+        .last_error
+        .map(|ts| now.duration_since(ts) <= Duration::from_secs(60))
+        .unwrap_or(false)
+    {
+        return StatusLevel::Error;
+    }
+    if state
+        .last_warning
+        .map(|ts| now.duration_since(ts) <= Duration::from_secs(60))
+        .unwrap_or(false)
+    {
+        return StatusLevel::Warning;
+    }
+    StatusLevel::Info
+}
+
+fn status_suffix(state: &AppState, level: StatusLevel) -> String {
+    match level {
+        StatusLevel::Warning => {
+            let count = state.warning_count;
+            if count > 0 {
+                format!(
+                    "({count} warning{} seen recently)",
+                    if count == 1 { "" } else { "s" }
+                )
+            } else {
+                String::new()
+            }
+        }
+        StatusLevel::Error => {
+            let count = state.error_count;
+            if count > 0 {
+                format!(
+                    "({count} error{} seen recently)",
+                    if count == 1 { "" } else { "s" }
+                )
+            } else {
+                String::new()
+            }
+        }
+        StatusLevel::Info => String::new(),
+    }
 }
 
 fn confidence_for(phase: Phase) -> &'static str {

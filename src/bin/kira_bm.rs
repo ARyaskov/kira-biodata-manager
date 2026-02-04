@@ -13,7 +13,7 @@ use kira_biodata_manager::knowledge::{KnowledgeClient, KnowledgeHttpClient};
 use kira_biodata_manager::ncbi::{NcbiClient, NcbiHttpClient};
 use kira_biodata_manager::output::{JsonOutput, OutputMode};
 use kira_biodata_manager::rcsb::{RcsbClient, RcsbHttpClient};
-use kira_biodata_manager::srr::{SrrClient, SystemSrrClient};
+use kira_biodata_manager::srr::{SrrClient, SrrToolStatus, SystemSrrClient};
 use kira_biodata_manager::store::Store;
 use kira_biodata_manager::tui::Tui;
 use kira_biodata_manager::uniprot::{UniprotClient, UniprotHttpClient};
@@ -32,14 +32,32 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    #[command(about = "Manage datasets (alias: data fetch)")]
-    Data(DataArgs),
+    #[command(about = "Fetch datasets")]
+    Fetch(FetchArgs),
+    #[command(about = "Fetch datasets (alias of fetch)")]
+    Add(FetchArgs),
+    #[command(about = "List locally available datasets")]
+    List,
+    #[command(about = "Show dataset info")]
+    Info(InfoArgs),
+    #[command(about = "Clear project-local store")]
+    Clear,
+    #[command(about = "Generate kira-bm.json from local store")]
+    Init,
+    #[command(about = "Manage external tools")]
+    Tools(ToolsArgs),
 }
 
 #[derive(Args)]
-struct DataArgs {
+struct ToolsArgs {
     #[command(subcommand)]
-    command: Option<DataCommand>,
+    command: ToolsCommand,
+}
+
+#[derive(Subcommand)]
+enum ToolsCommand {
+    #[command(about = "Print instructions to install SRA Toolkit (prefetch/fasterq-dump)")]
+    InstallSra,
 }
 
 #[derive(Subcommand)]
@@ -133,7 +151,15 @@ fn run() -> miette::Result<()> {
     let store = Store::new().into_diagnostic()?;
 
     match cli.command {
-        Some(Commands::Data(args)) => run_data(args, store, output_mode),
+        Some(Commands::Fetch(args)) => {
+            run_data_command(DataCommand::Fetch(args), store, output_mode)
+        }
+        Some(Commands::Add(args)) => run_data_command(DataCommand::Add(args), store, output_mode),
+        Some(Commands::List) => run_data_command(DataCommand::List, store, output_mode),
+        Some(Commands::Info(args)) => run_data_command(DataCommand::Info(args), store, output_mode),
+        Some(Commands::Clear) => run_data_command(DataCommand::Clear, store, output_mode),
+        Some(Commands::Init) => run_data_command(DataCommand::Init, store, output_mode),
+        Some(Commands::Tools(args)) => run_tools(args),
         None => {
             if matches!(output_mode, OutputMode::Interactive) {
                 if let Ok(resolved) = ConfigLoader::resolve(None) {
@@ -143,8 +169,16 @@ fn run() -> miette::Result<()> {
                     let uniprot = UniprotHttpClient::new().into_diagnostic()?;
                     let geo = GeoHttpClient::new().into_diagnostic()?;
                     let knowledge = KnowledgeHttpClient::new().into_diagnostic()?;
-                    let app = App::new(store, ncbi, rcsb, srr, uniprot, geo, knowledge);
+                    let app = App::new(store.clone(), ncbi, rcsb, srr, uniprot, geo, knowledge);
                     let mut tui = Tui::new(ProgressSinkKind::Fetch);
+                    if let SrrToolStatus::Missing { .. } = SystemSrrClient::new().tool_status() {
+                        tui.note_warning(
+                            "warning: SRR identifiers require the external NCBI SRA Toolkit (sratools https://github.com/ncbi/sra-tools ).",
+                        );
+                        tui.note_warning(
+                            "warning: The toolkit is not bundled. Please install it separately if needed.",
+                        );
+                    }
                     let fetch_options = FetchOptions {
                         force: false,
                         no_cache: false,
@@ -158,21 +192,81 @@ fn run() -> miette::Result<()> {
                             fetch_options,
                             sink,
                         )
-                    })?;
-                    tui.finish_fetch(&result)?;
-                    print_fetch_summary(&result);
-                    Ok(())
+                    });
+                    match result {
+                        Ok(result) => {
+                            tui.finish_fetch(&result)?;
+                            print_fetch_summary(&result);
+                            Ok(())
+                        }
+                        Err(err) => {
+                            let mut tui = Tui::new(ProgressSinkKind::Fetch);
+                            tui.note_error(&format!("error: {err}"));
+                            loop {
+                                let command = tui.idle_command()?;
+                                let Some(command) = command else {
+                                    break Ok(());
+                                };
+                                if command.trim_start().starts_with("tools ") {
+                                    if let Err(err) = run_tools_from_line(&command) {
+                                        tui.note_error(&format!("error: {err}"));
+                                    }
+                                    continue;
+                                }
+                                let data_command = match parse_tui_command(&command) {
+                                    Ok(cmd) => cmd,
+                                    Err(err) => {
+                                        tui.note_error(&format!("error: {err}"));
+                                        continue;
+                                    }
+                                };
+                                let keep_open = matches!(
+                                    data_command,
+                                    DataCommand::Fetch(_) | DataCommand::Add(_)
+                                );
+                                if let Err(err) =
+                                    run_data_command(data_command, store.clone(), output_mode)
+                                {
+                                    tui.note_error(&format!("error: {err}"));
+                                }
+                                if !keep_open {
+                                    break Ok(());
+                                }
+                            }
+                        }
+                    }
                 } else {
                     let mut tui = Tui::new(ProgressSinkKind::Fetch);
+                    if let SrrToolStatus::Missing { .. } = SystemSrrClient::new().tool_status() {
+                        tui.note_warning(
+                            "warning: SRR identifiers require the external NCBI SRA Toolkit (sratools https://github.com/ncbi/sra-tools ).",
+                        );
+                        tui.note_warning(
+                            "warning: The toolkit is not bundled. Please install it separately if needed.",
+                        );
+                    }
                     loop {
                         let command = tui.idle_command()?;
                         let Some(command) = command else {
                             break Ok(());
                         };
-                        let data_command = parse_tui_command(&command)?;
+                        if command.trim_start().starts_with("tools ") {
+                            run_tools_from_line(&command)?;
+                            continue;
+                        }
+                        let data_command = match parse_tui_command(&command) {
+                            Ok(cmd) => cmd,
+                            Err(err) => {
+                                tui.note_error(&format!("error: {err}"));
+                                continue;
+                            }
+                        };
                         let keep_open =
                             matches!(data_command, DataCommand::Fetch(_) | DataCommand::Add(_));
-                        run_data_command(data_command, store.clone(), output_mode)?;
+                        if let Err(err) = run_data_command(data_command, store.clone(), output_mode)
+                        {
+                            tui.note_error(&format!("error: {err}"));
+                        }
                         if !keep_open {
                             break Ok(());
                         }
@@ -180,25 +274,11 @@ fn run() -> miette::Result<()> {
                 }
             } else {
                 Err(miette::Report::msg(
-                    "command required (try `kira-bm data --help`)",
+                    "command required (try `kira-bm --help`)",
                 ))
             }
         }
     }
-}
-
-fn run_data(args: DataArgs, store: Store, output_mode: OutputMode) -> miette::Result<()> {
-    let command = args.command.unwrap_or(DataCommand::Fetch(FetchArgs {
-        specifier: None,
-        config: None,
-        format: None,
-        paired: false,
-        force: false,
-        no_cache: false,
-        dry_run: false,
-    }));
-
-    run_data_command(command, store, output_mode)
 }
 
 fn run_data_command(
@@ -314,10 +394,6 @@ fn parse_tui_command(input: &str) -> miette::Result<DataCommand> {
 
     let mut parts: Vec<&str> = trimmed.split_whitespace().collect();
     if parts.first().map(|v| *v == "kira-bm").unwrap_or(false) {
-        parts.remove(0);
-    }
-
-    if parts.first().map(|v| *v == "data").unwrap_or(false) {
         parts.remove(0);
     }
 
@@ -550,6 +626,20 @@ fn run_fetch<
         None
     };
 
+    if requires_srr_tools(specifier.as_ref(), resolved_config.as_ref()) {
+        let status = SystemSrrClient::new().tool_status();
+        if let SrrToolStatus::Missing { message } = status {
+            return Err(miette::Report::msg(format!(
+                "SRA tools not available: {message}\n\nInstall:\n  kira-bm tools install-sra\n\nAfter installing, add the SRA Toolkit directory to PATH and restart your terminal."
+            )));
+        }
+    } else if let SrrToolStatus::Missing { .. } = SystemSrrClient::new().tool_status() {
+        eprintln!(
+            "warning: SRR identifiers require the external NCBI SRA Toolkit (sratools https://github.com/ncbi/sra-tools )."
+        );
+        eprintln!("warning: The toolkit is not bundled. Please install it separately if needed.");
+    }
+
     let fetch_options = FetchOptions {
         force,
         no_cache,
@@ -573,6 +663,14 @@ fn run_fetch<
         }
         OutputMode::Interactive => {
             let mut tui = Tui::new(ProgressSinkKind::Fetch);
+            if let SrrToolStatus::Missing { .. } = SystemSrrClient::new().tool_status() {
+                tui.note_warning(
+                    "warning: SRR identifiers require the external NCBI SRA Toolkit (sratools https://github.com/ncbi/sra-tools ).",
+                );
+                tui.note_warning(
+                    "warning: The toolkit is not bundled. Please install it separately if needed.",
+                );
+            }
             let result = tui.run(move |sink| {
                 app.fetch(
                     specifier,
@@ -581,11 +679,60 @@ fn run_fetch<
                     fetch_options,
                     sink,
                 )
-            })?;
-            tui.finish_fetch(&result)?;
+            });
+            match result {
+                Ok(result) => {
+                    tui.finish_fetch(&result)?;
+                    Ok(())
+                }
+                Err(err) => {
+                    let mut tui = Tui::new(ProgressSinkKind::Fetch);
+                    tui.note_error(&format!("error: {err}"));
+                    tui.idle_command().ok();
+                    Ok(())
+                }
+            }
+        }
+    }
+}
+
+fn requires_srr_tools(
+    specifier: Option<&DatasetSpecifier>,
+    config: Option<&kira_biodata_manager::config::ResolvedConfig>,
+) -> bool {
+    if let Some(DatasetSpecifier::Srr(_)) = specifier {
+        return true;
+    }
+    if let Some(config) = config {
+        return !config.srr.is_empty();
+    }
+    false
+}
+
+fn run_tools(args: ToolsArgs) -> miette::Result<()> {
+    match args.command {
+        ToolsCommand::InstallSra => {
+            println!(
+                "Optional external dependency required for the optional `srr:<SRR_ID>` dataset feature.\n\n\
+Install (official NCBI releases):\n  https://github.com/ncbi/sra-tools/wiki/02.-Installing-SRA-Toolkit\n\n\
+After installation, add the SRA Toolkit `bin` directory to PATH\n\
+and restart your terminal.\n\n\
+If the user uses `srr:` datasets, the following external utilities are required:\n\
+  - prefetch\n- fasterq-dump\n"
+            );
             Ok(())
         }
     }
+}
+
+fn run_tools_from_line(line: &str) -> miette::Result<()> {
+    let parts: Vec<&str> = line.split_whitespace().collect();
+    if parts.len() >= 2 && parts[0] == "tools" && parts[1] == "install-sra" {
+        return run_tools(ToolsArgs {
+            command: ToolsCommand::InstallSra,
+        });
+    }
+    Err(miette::Report::msg("unknown tools command"))
 }
 
 fn build_overrides(

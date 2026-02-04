@@ -70,13 +70,14 @@ Notes:
 - DOI accepts full DOI strings like `10.1038/s41586-020-2649-2`.
 - GEO expression datasets accept `GSE` accessions (`expression`, `expression10x`).
 - Knowledge bases are available as singletons: `go`, `kegg`, `reactome` (use CLI fetch).
+- SRR datasets require NCBI SRA Toolkit (`prefetch` + `fasterq-dump`). See `kira-bm tools install-sra`.
 
 ## Usage
 
 Fetch from config (`kira-bm.json`) in the current directory:
 
 ```bash
-kira-bm data
+kira-bm fetch
 or just
 kira-bm
 ```
@@ -87,15 +88,15 @@ In case you have no `kira-bm.json` file in project and run `kira-bm` -- you'll s
 Fetch a specific dataset (add dataset to project's dataset directory):
 
 ```bash
-kira-bm data fetch protein:1LYZ
-kira-bm data fetch genome:GCF_000005845.2
-kira-bm data fetch srr:SRR014966
-kira-bm data fetch uniprot:P69905
-kira-bm data fetch expression:GSE102902
-kira-bm data fetch expression10x:GSE115978
-kira-bm data fetch go
-kira-bm data fetch kegg
-kira-bm data fetch reactome
+kira-bm fetch protein:1LYZ
+kira-bm fetch genome:GCF_000005845.2
+kira-bm fetch srr:SRR014966
+kira-bm fetch uniprot:P69905
+kira-bm fetch expression:GSE102902
+kira-bm fetch expression10x:GSE115978
+kira-bm fetch go
+kira-bm fetch kegg
+kira-bm fetch reactome
 ```
 
 Routing:
@@ -111,19 +112,19 @@ Routing:
 List datasets (JSON in non-interactive mode):
 
 ```bash
-kira-bm data list --non-interactive
+kira-bm list --non-interactive
 ```
 
 Show dataset info:
 
 ```bash
-kira-bm data info protein:1LYZ --non-interactive
+kira-bm info protein:1LYZ --non-interactive
 ```
 
 Clear project store:
 
 ```bash
-kira-bm data clear
+kira-bm clear
 ```
 
 ## DOI-driven dataset discovery
@@ -146,7 +147,7 @@ What it does NOT do:
 Example:
 
 ```bash
-kira-bm data fetch doi:10.1038/s41586-020-2649-2
+kira-bm fetch doi:10.1038/s41586-020-2649-2
 ```
 
 ## Storage layout
@@ -211,6 +212,16 @@ Global cache:
 ## Output contracts
 
 `--non-interactive` mode:
-- `data list` and `data info` output JSON to stdout.
-- `data fetch` and `data clear` output JSON summaries.
+- `list` and `info` output JSON to stdout.
+- `fetch` and `clear` output JSON summaries.
 - Errors go to stderr with non-zero exit codes.
+
+
+
+## Optional external tools
+
+kira-bm may optionally invoke externally installed third-party tools
+(e.g. NCBI SRA Toolkit https://github.com/ncbi/sra-tools ).
+These tools are not bundled, not distributed, and are subject
+to their own licenses.
+Users are responsible for installing and complying with those licenses.

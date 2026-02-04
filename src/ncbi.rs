@@ -169,13 +169,8 @@ impl NcbiClient for NcbiHttpClient {
             self.base_url,
             accession.as_str()
         );
-        let response = self.send_with_retries(|| {
-            let mut request = self.client.get(&url);
-            for value in &include_params {
-                request = request.query(&[("include_annotation_type", value.as_str())]);
-            }
-            request
-        })?;
+        let url = append_query_multi(&url, "include_annotation_type", &include_params);
+        let response = self.send_with_retries(|| self.client.get(&url))?;
         self.write_response_to_file(response, destination)
     }
 }
@@ -211,4 +206,34 @@ fn is_retryable_status(status: u16) -> bool {
 
 fn is_retryable_error(err: &reqwest::Error) -> bool {
     err.is_timeout() || err.is_connect() || err.is_request()
+}
+
+fn append_query_multi(base: &str, key: &str, values: &[String]) -> String {
+    if values.is_empty() {
+        return base.to_string();
+    }
+    let mut url = String::from(base);
+    url.push('?');
+    for (idx, value) in values.iter().enumerate() {
+        if idx > 0 {
+            url.push('&');
+        }
+        url.push_str(&encode_component(key));
+        url.push('=');
+        url.push_str(&encode_component(value));
+    }
+    url
+}
+
+fn encode_component(value: &str) -> String {
+    let mut out = String::new();
+    for byte in value.as_bytes() {
+        let ch = *byte as char;
+        if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' || ch == '.' || ch == '~' {
+            out.push(ch);
+        } else {
+            out.push_str(&format!("%{:02X}", byte));
+        }
+    }
+    out
 }

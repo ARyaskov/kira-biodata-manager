@@ -465,13 +465,15 @@ impl DoiResolver {
     fn hydrate_ena_project(&self, acc: &str) -> Result<HydratedEnaProject, KiraError> {
         let response = self
             .client
-            .get(&format!("{ENA_PORTAL_BASE}/filereport"))
-            .query(&[
-                ("accession", acc),
-                ("result", "read_run"),
-                ("fields", "run_accession"),
-                ("format", "tsv"),
-            ])
+            .get(&build_query_url(
+                &format!("{ENA_PORTAL_BASE}/filereport"),
+                &[
+                    ("accession", acc),
+                    ("result", "read_run"),
+                    ("fields", "run_accession"),
+                    ("format", "tsv"),
+                ],
+            ))
             .send()
             .map_err(|err| KiraError::CrossrefHttp(err.to_string()))?;
         if !response.status().is_success() {
@@ -502,13 +504,15 @@ impl DoiResolver {
     fn fetch_geo_text(&self, acc: &str) -> Result<String, KiraError> {
         let response = self
             .client
-            .get(GEO_TEXT_BASE)
-            .query(&[
-                ("acc", acc),
-                ("targ", "self"),
-                ("form", "text"),
-                ("view", "quick"),
-            ])
+            .get(&build_query_url(
+                GEO_TEXT_BASE,
+                &[
+                    ("acc", acc),
+                    ("targ", "self"),
+                    ("form", "text"),
+                    ("view", "quick"),
+                ],
+            ))
             .send()
             .map_err(|err| KiraError::CrossrefHttp(err.to_string()))?;
         if !response.status().is_success() {
@@ -525,8 +529,10 @@ impl DoiResolver {
     fn esearch_ids(&self, db: &str, term: &str) -> Result<Vec<String>, KiraError> {
         let response = self
             .client
-            .get(&format!("{EUTILS_BASE}/esearch.fcgi"))
-            .query(&[("db", db), ("term", term), ("retmode", "json")])
+            .get(&build_query_url(
+                &format!("{EUTILS_BASE}/esearch.fcgi"),
+                &[("db", db), ("term", term), ("retmode", "json")],
+            ))
             .send()
             .map_err(|err| KiraError::CrossrefHttp(err.to_string()))?;
         if !response.status().is_success() {
@@ -553,13 +559,15 @@ impl DoiResolver {
         let id_list = ids.join(",");
         let response = self
             .client
-            .get(&format!("{EUTILS_BASE}/elink.fcgi"))
-            .query(&[
-                ("dbfrom", dbfrom),
-                ("db", db),
-                ("id", id_list.as_str()),
-                ("retmode", "json"),
-            ])
+            .get(&build_query_url(
+                &format!("{EUTILS_BASE}/elink.fcgi"),
+                &[
+                    ("dbfrom", dbfrom),
+                    ("db", db),
+                    ("id", id_list.as_str()),
+                    ("retmode", "json"),
+                ],
+            ))
             .send()
             .map_err(|err| KiraError::CrossrefHttp(err.to_string()))?;
         if !response.status().is_success() {
@@ -598,8 +606,10 @@ impl DoiResolver {
         let id_list = ids.join(",");
         let response = self
             .client
-            .get(&format!("{EUTILS_BASE}/esummary.fcgi"))
-            .query(&[("db", "sra"), ("id", id_list.as_str()), ("retmode", "json")])
+            .get(&build_query_url(
+                &format!("{EUTILS_BASE}/esummary.fcgi"),
+                &[("db", "sra"), ("id", id_list.as_str()), ("retmode", "json")],
+            ))
             .send()
             .map_err(|err| KiraError::CrossrefHttp(err.to_string()))?;
         if !response.status().is_success() {
@@ -635,12 +645,14 @@ impl DoiResolver {
         let id_list = ids.join(",");
         let response = self
             .client
-            .get(&format!("{EUTILS_BASE}/esummary.fcgi"))
-            .query(&[
-                ("db", "assembly"),
-                ("id", id_list.as_str()),
-                ("retmode", "json"),
-            ])
+            .get(&build_query_url(
+                &format!("{EUTILS_BASE}/esummary.fcgi"),
+                &[
+                    ("db", "assembly"),
+                    ("id", id_list.as_str()),
+                    ("retmode", "json"),
+                ],
+            ))
             .send()
             .map_err(|err| KiraError::CrossrefHttp(err.to_string()))?;
         if !response.status().is_success() {
@@ -1048,6 +1060,23 @@ fn encode_url_component(value: &str) -> String {
         } else {
             out.push_str(&format!("%{:02X}", byte));
         }
+    }
+    out
+}
+
+fn build_query_url(base: &str, params: &[(&str, &str)]) -> String {
+    if params.is_empty() {
+        return base.to_string();
+    }
+    let mut out = String::from(base);
+    out.push('?');
+    for (idx, (key, value)) in params.iter().enumerate() {
+        if idx > 0 {
+            out.push('&');
+        }
+        out.push_str(&encode_url_component(key));
+        out.push('=');
+        out.push_str(&encode_url_component(value));
     }
     out
 }

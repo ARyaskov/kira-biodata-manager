@@ -11,17 +11,14 @@ All commands are for the `kira-bm` binary.
 ## Command groups
 
 ```
-kira-bm data <subcommand>
+kira-bm <command>
+kira-bm tools <subcommand>
 ```
 
-Aliases:
-- `kira-bm data` → `kira-bm data fetch`
-- `kira-bm data add` → `kira-bm data fetch`
-
-## data fetch
+## fetch
 
 ```
-kira-bm data fetch [SPECIFIER] [--config PATH] [--format <fmt>] [--paired] [--force] [--no-cache] [--dry-run] [--non-interactive]
+kira-bm fetch [SPECIFIER] [--config PATH] [--format <fmt>] [--paired] [--force] [--no-cache] [--dry-run] [--non-interactive]
 ```
 
 Notes:
@@ -51,47 +48,63 @@ Notes:
 ### Examples
 
 ```
-kira-bm data fetch protein:1LYZ
-kira-bm data fetch protein:1LYZ --format pdb
-kira-bm data fetch genome:GCF_000005845.2
-kira-bm data fetch srr:SRR014966 --format fastq --paired
-kira-bm data fetch uniprot:P69905
-kira-bm data fetch doi:10.1038/s41586-020-2649-2
-kira-bm data fetch expression:GSE102902
-kira-bm data fetch expression10x:GSE115978
-kira-bm data fetch go
-kira-bm data fetch kegg
-kira-bm data fetch reactome
+kira-bm fetch protein:1LYZ
+kira-bm fetch protein:1LYZ --format pdb
+kira-bm fetch genome:GCF_000005845.2
+kira-bm fetch srr:SRR014966 --format fastq --paired
+kira-bm fetch uniprot:P69905
+kira-bm fetch doi:10.1038/s41586-020-2649-2
+kira-bm fetch expression:GSE102902
+kira-bm fetch expression10x:GSE115978
+kira-bm fetch go
+kira-bm fetch kegg
+kira-bm fetch reactome
 ```
 
-## data list
+## add
 
 ```
-kira-bm data list [--non-interactive]
+kira-bm add <SPECIFIER> [--config PATH] [--format <fmt>] [--paired] [--force] [--no-cache] [--dry-run] [--non-interactive]
+```
+
+Alias of `fetch`.
+
+## list
+
+```
+kira-bm list [--non-interactive]
 ```
 
 Lists datasets available in the project store and global cache.
 
-## data info
+## info
 
 ```
-kira-bm data info <SPECIFIER> [--non-interactive]
+kira-bm info <SPECIFIER> [--non-interactive]
 ```
 
 Prints metadata and resolved paths for a dataset.
 
-## data clear
+## clear
 
 ```
-kira-bm data clear [--non-interactive]
+kira-bm clear [--non-interactive]
 ```
 
 Clears only the project-local store (`./.kira-bm/`).
 
-## data init
+## init
 
 ```
-kira-bm data init [--non-interactive]
+kira-bm init [--non-interactive]
 ```
 
 Generates `kira-bm.json` from datasets already present in the project store.
+
+## tools install-sra
+
+```
+kira-bm tools install-sra
+```
+
+Prints official SRA Toolkit install instructions (prefetch/fasterq-dump).

@@ -23,6 +23,12 @@ pub trait SrrClient: Send + Sync {
     fn tool_info(&self) -> ToolInfo;
 }
 
+#[derive(Debug, Clone)]
+pub enum SrrToolStatus {
+    Ready,
+    Missing { message: String },
+}
+
 #[derive(Clone)]
 pub struct SystemSrrClient {
     datasets: Option<PathBuf>,
@@ -37,6 +43,20 @@ impl SystemSrrClient {
             prefetch: find_in_path("prefetch"),
             fasterq_dump: find_in_path("fasterq-dump"),
         }
+    }
+
+    pub fn tool_status(&self) -> SrrToolStatus {
+        if self.fasterq_dump.is_none() {
+            return SrrToolStatus::Missing {
+                message: "missing fasterq-dump (SRA Toolkit)".to_string(),
+            };
+        }
+        if self.datasets.is_none() && self.prefetch.is_none() {
+            return SrrToolStatus::Missing {
+                message: "missing prefetch or datasets (SRA download tool)".to_string(),
+            };
+        }
+        SrrToolStatus::Ready
     }
 
     fn require_fasterq(&self) -> Result<&PathBuf, KiraError> {
